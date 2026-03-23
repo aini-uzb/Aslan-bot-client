@@ -1,3 +1,5 @@
+import re
+
 from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery, ReplyKeyboardRemove
 from aiogram.filters import CommandStart
@@ -44,6 +46,13 @@ _lesson_file_id: str = ""
 _start_photo_id: str = ""
 _admin_ids: set[int] = set(ADMIN_IDS_FIXED)
 _payment_messages: dict[str, list[tuple[int, int]]] = {}
+
+
+def _extract_hashtag_tags(text: str | None) -> list[str]:
+    """Fallback for channel posts when Telegram entities are missing."""
+    if not text:
+        return []
+    return [m.group(1) for m in re.finditer(r"#([^\s#]+)", text)]
 
 PRODUCTS_MENU_TEXT = (
     "📦 <b>Что я подготовил для вас</b>\n\n"
@@ -898,21 +907,31 @@ async def admin_list_cities(message: Message):
 # ══════════════════════════════════════════════
 @channel_router.channel_post()
 async def collect_hashtags(message: Message):
-    if not message.entities:
-        return
-    for entity in message.entities:
-        if entity.type == "hashtag":
-            raw = message.text[entity.offset : entity.offset + entity.length]
-            tag = raw[1:] if raw.startswith("#") else raw
-            if tag:
-                await add_city(tag)
+    added: set[str] = set()
+    if message.entities and message.text:
+        for entity in message.entities:
+            if entity.type == "hashtag":
+                raw = message.text[entity.offset : entity.offset + entity.length]
+                tag = raw[1:] if raw.startswith("#") else raw
+                if tag:
+                    added.add(tag)
+    for tag in _extract_hashtag_tags(message.text):
+        added.add(tag)
+    for tag in added:
+        await add_city(tag)
 
 
 @channel_router.channel_post(F.caption_entities)
 async def collect_hashtags_caption(message: Message):
-    for entity in message.caption_entities:
-        if entity.type == "hashtag":
-            raw = message.caption[entity.offset : entity.offset + entity.length]
-            tag = raw[1:] if raw.startswith("#") else raw
-            if tag:
-                await add_city(tag)
+    added: set[str] = set()
+    if message.caption_entities and message.caption:
+        for entity in message.caption_entities:
+            if entity.type == "hashtag":
+                raw = message.caption[entity.offset : entity.offset + entity.length]
+                tag = raw[1:] if raw.startswith("#") else raw
+                if tag:
+                    added.add(tag)
+    for tag in _extract_hashtag_tags(message.caption):
+        added.add(tag)
+    for tag in added:
+        await add_city(tag)
