@@ -128,14 +128,6 @@ async def deliver_free_lesson(message: Message, state: FSMContext, delete_previo
     caption = caption_pay if paying else caption_normal
     reply_kb = payment_also_services_keyboard() if paying else after_lesson_keyboard()
 
-    rm_msg = None
-    if not paying:
-        rm_msg = await message.answer(
-            ".",
-            reply_markup=ReplyKeyboardRemove(),
-            disable_notification=True,
-        )
-
     video_id = FREE_LESSON_FILE_ID or _lesson_file_id
     if video_id:
         try:
@@ -161,13 +153,6 @@ async def deliver_free_lesson(message: Message, state: FSMContext, delete_previo
         await message.answer(
             "⚠️ Урок пока не загружен. Обратитесь к администратору.",
         )
-
-    if rm_msg:
-        try:
-            await rm_msg.delete()
-        except TelegramBadRequest:
-            pass
-
 
 # ══════════════════════════════════════════════
 #  Нижнее меню: Помощь / Смотреть урок (только после «Я посмотрел»)
