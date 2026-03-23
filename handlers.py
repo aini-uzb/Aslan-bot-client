@@ -266,8 +266,9 @@ async def watched_lesson(callback: CallbackQuery, state: FSMContext):
         reply_markup=products_keyboard(),
     )
     await callback.message.answer(
-        "⬇️ Нижнее меню включено: «Смотреть урок» и «Помощь».",
+        " ",
         reply_markup=main_reply_keyboard(),
+        disable_notification=True,
     )
 
 
