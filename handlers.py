@@ -915,15 +915,6 @@ async def collect_hashtags(message: Message):
                 tag = raw[1:] if raw.startswith("#") else raw
                 if tag:
                     added.add(tag)
-    for tag in _extract_hashtag_tags(message.text):
-        added.add(tag)
-    for tag in added:
-        await add_city(tag)
-
-
-@channel_router.channel_post(F.caption_entities)
-async def collect_hashtags_caption(message: Message):
-    added: set[str] = set()
     if message.caption_entities and message.caption:
         for entity in message.caption_entities:
             if entity.type == "hashtag":
@@ -931,6 +922,8 @@ async def collect_hashtags_caption(message: Message):
                 tag = raw[1:] if raw.startswith("#") else raw
                 if tag:
                     added.add(tag)
+    for tag in _extract_hashtag_tags(message.text):
+        added.add(tag)
     for tag in _extract_hashtag_tags(message.caption):
         added.add(tag)
     for tag in added:
