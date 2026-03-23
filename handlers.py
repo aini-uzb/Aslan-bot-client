@@ -246,12 +246,6 @@ async def cmd_start(message: Message, state: FSMContext):
         "Начните с <b>бесплатного видеоурока</b> 👇"
     )
 
-    rm_msg = await message.answer(
-        ".",
-        reply_markup=ReplyKeyboardRemove(),
-        disable_notification=True,
-    )
-
     photo_id = START_PHOTO_FILE_ID or _start_photo_id
     if photo_id:
         await message.answer_photo(
@@ -261,11 +255,6 @@ async def cmd_start(message: Message, state: FSMContext):
         )
     else:
         await message.answer(text, reply_markup=start_keyboard())
-
-    try:
-        await rm_msg.delete()
-    except TelegramBadRequest:
-        pass
 
 
 # ══════════════════════════════════════════════
