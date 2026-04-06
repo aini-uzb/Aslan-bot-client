@@ -6,7 +6,7 @@ from aiogram.types import (
 )
 from config import PRODUCTS
 
-BTN_WATCH_LESSON = "🎬 Смотреть урок"
+BTN_WATCH_LESSON = "🎬 Выбрать урок"
 BTN_HELP = "❓ Помощь"
 
 
@@ -24,7 +24,9 @@ def main_reply_keyboard() -> ReplyKeyboardMarkup:
 
 def start_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="▶️ Посмотреть бесплатный урок", callback_data="free_lesson")],
+        [InlineKeyboardButton(text="🦷 Урок 1: Прикус", callback_data="free_lesson:1")],
+        [InlineKeyboardButton(text="🪥 Урок 2: Гигиена", callback_data="free_lesson:2")],
+        [InlineKeyboardButton(text="🔩 Урок 3: Импланты", callback_data="free_lesson:3")],
     ])
 
 

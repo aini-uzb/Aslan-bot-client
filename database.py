@@ -96,7 +96,53 @@ async def init_db():
                 city TEXT PRIMARY KEY COLLATE NOCASE
             )
         """)
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS users (
+                user_id INTEGER PRIMARY KEY,
+                username TEXT,
+                step TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+        """)
         await db.commit()
+
+async def upsert_user(user_id: int, username: str, step: str):
+    now = datetime.datetime.now(datetime.timezone.utc).isoformat()
+    async with aiosqlite.connect(DB_PATH) as db:
+        cursor = await db.execute("SELECT step FROM users WHERE user_id = ?", (user_id,))
+        row = await cursor.fetchone()
+        if row:
+            await db.execute(
+                "UPDATE users SET username = ?, step = ?, updated_at = ? WHERE user_id = ?",
+                (username or "", step, now, user_id)
+            )
+        else:
+            await db.execute(
+                "INSERT INTO users (user_id, username, step, created_at, updated_at) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (user_id, username or "", step, now, now)
+            )
+        await db.commit()
+
+async def get_statistics() -> dict:
+    async with aiosqlite.connect(DB_PATH) as db:
+        cursor = await db.execute("SELECT COUNT(*) FROM users")
+        total_users = (await cursor.fetchone())[0] if cursor else 0
+        
+        cursor = await db.execute("SELECT step, COUNT(*) FROM users GROUP BY step")
+        rows = await cursor.fetchall()
+        steps_counts = {r[0]: r[1] for r in rows}
+        
+        cursor = await db.execute("SELECT COUNT(DISTINCT user_id) FROM subscriptions")
+        buyers = (await cursor.fetchone())[0] if cursor else 0
+
+        return {
+            "total_users": total_users,
+            "steps": steps_counts,
+            "buyers": buyers
+        }
+
 
 
 async def save_admin(user_id: int, username: str = ""):

@@ -2,7 +2,7 @@ import re
 
 from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery, ReplyKeyboardRemove
-from aiogram.filters import CommandStart
+from aiogram.filters import CommandStart, Command
 from aiogram.fsm.context import FSMContext
 from aiogram.exceptions import TelegramBadRequest
 
@@ -37,12 +37,15 @@ from config import (
 from database import (
     add_subscription, save_admin, get_all_admin_ids,
     add_city, get_all_cities, find_city, city_display_name,
+    upsert_user, get_statistics,
 )
 
 router = Router()
 channel_router = Router()
 
-_lesson_file_id: str = ""
+_lesson_1_id: str = ""
+_lesson_2_id: str = ""
+_lesson_3_id: str = ""
 _start_photo_id: str = ""
 _admin_ids: set[int] = set(ADMIN_IDS_FIXED)
 _payment_messages: dict[str, list[tuple[int, int]]] = {}
@@ -105,7 +108,7 @@ def help_contact_lines() -> str:
     return "\n".join(lines)
 
 
-async def deliver_free_lesson(message: Message, state: FSMContext, delete_previous: bool = False):
+async def deliver_free_lesson(message: Message, state: FSMContext, lesson_num: str = "1", delete_previous: bool = False):
     """Отправить бесплатный урок. Во время ожидания чека состояние не сбрасываем."""
     if delete_previous:
         try:
@@ -137,7 +140,13 @@ async def deliver_free_lesson(message: Message, state: FSMContext, delete_previo
     caption = caption_pay if paying else caption_normal
     reply_kb = payment_also_services_keyboard() if paying else after_lesson_keyboard()
 
-    video_id = FREE_LESSON_FILE_ID or _lesson_file_id
+    if lesson_num == "1":
+        video_id = FREE_LESSON_FILE_ID or _lesson_1_id
+    elif lesson_num == "2":
+        video_id = _lesson_2_id
+    else:
+        video_id = _lesson_3_id
+        
     if video_id:
         try:
             await message.answer_video(
@@ -151,7 +160,7 @@ async def deliver_free_lesson(message: Message, state: FSMContext, delete_previo
                 caption=caption,
                 reply_markup=reply_kb,
             )
-    elif FREE_LESSON_LINK:
+    elif lesson_num == "1" and FREE_LESSON_LINK:
         await message.answer(
             f"🎬 <b>Бесплатный урок от Доктора Аслана</b>\n\n"
             f"▶️ Смотреть: {FREE_LESSON_LINK}\n\n"
@@ -160,7 +169,7 @@ async def deliver_free_lesson(message: Message, state: FSMContext, delete_previo
         )
     else:
         await message.answer(
-            "⚠️ Урок пока не загружен. Обратитесь к администратору.",
+            "⚠️ Урок пока не загружен. Скоро мы его добавим!",
         )
 
 # ══════════════════════════════════════════════
@@ -179,9 +188,12 @@ async def reply_menu_help(message: Message, state: FSMContext):
     )
 
 
-@router.message(F.text == BTN_WATCH_LESSON)
+@router.message(F.text.in_({BTN_WATCH_LESSON, "🎬 Смотреть урок"}))
 async def reply_menu_lesson(message: Message, state: FSMContext):
-    await deliver_free_lesson(message, state, delete_previous=False)
+    await message.answer(
+        "Выберите бесплатный видеоурок по теме 👇",
+        reply_markup=start_keyboard(),
+    )
 
 
 # ══════════════════════════════════════════════
@@ -219,6 +231,26 @@ async def admin_forward_info(message: Message):
         )
 
 
+@router.message(Command("statistic"))
+async def cmd_statistic(message: Message):
+    if not await check_admin(message.from_user):
+        return
+        
+    stats = await get_statistics()
+    total = stats["total_users"]
+    steps = stats.get("steps", {})
+    buyers = stats["buyers"]
+    
+    text = f"📊 <b>Статистика воронки</b>\n\n"
+    text += f"👥 <b>Всего зашло в бота:</b> {total}\n"
+    text += f"🎬 Смотрят урок: {steps.get('watching_lesson', 0)}\n"
+    text += f"📦 Открыли меню продуктов: {steps.get('products_menu', 0)}\n"
+    text += f"💳 Перешли к реквизитам: {steps.get('payment_details', 0)}\n"
+    text += f"📸 Прислали чек (ожидают): {steps.get('waiting_approval', 0)}\n\n"
+    text += f"💰 <b>Совершили покупку:</b> {buyers}\n"
+    
+    await message.answer(text)
+
 # ══════════════════════════════════════════════
 #  /start
 # ══════════════════════════════════════════════
@@ -228,6 +260,8 @@ async def cmd_start(message: Message, state: FSMContext):
     await state.set_state(UserFlow.after_start)
     if is_admin_sync(message.from_user):
         await register_admin(message.from_user)
+        
+    await upsert_user(message.from_user.id, message.from_user.username or "", "start")
 
     text = (
         "🦷 <b>Doctor Aslan</b>\n\n"
@@ -237,7 +271,7 @@ async def cmd_start(message: Message, state: FSMContext):
         "Здесь я собрал всё самое ценное, "
         "что поможет вам разобраться в стоматологии "
         "и найти проверенного врача.\n\n"
-        "Начните с <b>бесплатного видеоурока</b> 👇"
+        "Начните с <b>бесплатных видеоуроков по теме</b> 👇"
     )
 
     photo_id = START_PHOTO_FILE_ID or _start_photo_id
@@ -254,10 +288,12 @@ async def cmd_start(message: Message, state: FSMContext):
 # ══════════════════════════════════════════════
 #  Бесплатный урок
 # ══════════════════════════════════════════════
-@router.callback_query(F.data == "free_lesson")
+@router.callback_query(F.data.startswith("free_lesson:"))
 async def free_lesson(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
-    await deliver_free_lesson(callback.message, state, delete_previous=True)
+    await upsert_user(callback.from_user.id, callback.from_user.username or "", "watching_lesson")
+    lesson_num = callback.data.split(":")[1]
+    await deliver_free_lesson(callback.message, state, lesson_num=lesson_num, delete_previous=True)
 
 
 # ══════════════════════════════════════════════
@@ -266,6 +302,7 @@ async def free_lesson(callback: CallbackQuery, state: FSMContext):
 @router.callback_query(F.data == "watched_lesson")
 async def watched_lesson(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
+    await upsert_user(callback.from_user.id, callback.from_user.username or "", "products_menu")
     try:
         await callback.message.delete()
     except TelegramBadRequest:
@@ -275,7 +312,7 @@ async def watched_lesson(callback: CallbackQuery, state: FSMContext):
         reply_markup=products_keyboard(),
     )
     await callback.message.answer(
-        " ",
+        "👇 Используйте нижнее меню для навигации",
         reply_markup=main_reply_keyboard(),
         disable_notification=True,
     )
@@ -298,6 +335,7 @@ async def select_group(callback: CallbackQuery, state: FSMContext):
     group = callback.data.split(":")[1]
 
     if group == "channel":
+        await upsert_user(callback.from_user.id, callback.from_user.username or "", "select_channel_tariff")
         text = (
             "🔐 <b>Закрытый канал Doctor Aslan</b>\n\n"
             "Это не просто канал — это ваш личный наставник "
@@ -314,6 +352,7 @@ async def select_group(callback: CallbackQuery, state: FSMContext):
         )
         await callback.message.edit_text(text, reply_markup=tariff_keyboard(group))
     else:
+        await upsert_user(callback.from_user.id, callback.from_user.username or "", "city_choice")
         await state.set_state(UserFlow.city_choice)
         await callback.message.edit_text(
             "📋 <b>База проверенных врачей</b>\n\n"
@@ -339,6 +378,7 @@ async def select_product(callback: CallbackQuery, state: FSMContext):
         return
 
     product = PRODUCTS[product_key]
+    await upsert_user(callback.from_user.id, callback.from_user.username or "", "payment_details")
     await state.update_data(selected_product=product_key)
     await state.set_state(UserFlow.product_selected)
 
@@ -560,6 +600,7 @@ async def receive_receipt(message: Message, state: FSMContext):
         await message.answer("⚠️ Ошибка. Нажмите /start и попробуйте заново.")
         return
 
+    await upsert_user(message.from_user.id, message.from_user.username or "", "waiting_approval")
     await state.set_state(UserFlow.payment_sent)
 
     await message.answer(
@@ -765,12 +806,22 @@ async def admin_set_video(message: Message):
     if not await check_admin(message.from_user):
         return
     file_id = message.video.file_id
-    global _lesson_file_id
-    _lesson_file_id = file_id
-    await message.answer(
-        f"✅ Видео сохранено как бесплатный урок!\n\n"
-        f"<code>FREE_LESSON_FILE_ID={file_id}</code>"
-    )
+    global _lesson_1_id, _lesson_2_id, _lesson_3_id
+    
+    caption = message.caption and message.caption.strip()
+    if caption == "2":
+        _lesson_2_id = file_id
+        await message.answer(f"✅ Видео сохранено как Урок 2 (Гигиена)!")
+    elif caption == "3":
+        _lesson_3_id = file_id
+        await message.answer(f"✅ Видео сохранено как Урок 3 (Импланты)!")
+    else:
+        _lesson_1_id = file_id
+        await message.answer(
+            f"✅ Видео сохранено как Урок 1 (Прикус)!\n\n"
+            f"(Чтобы сохранить как другой урок, добавьте цифру 2 или 3 в подпись к видео)\n\n"
+            f"<code>FREE_LESSON_FILE_ID={file_id}</code>"
+        )
 
 
 @router.message(F.document)
@@ -781,12 +832,22 @@ async def admin_set_document(message: Message):
     if not mime.startswith("video/"):
         return
     file_id = message.document.file_id
-    global _lesson_file_id
-    _lesson_file_id = file_id
-    await message.answer(
-        f"✅ Видео-файл сохранено как бесплатный урок!\n\n"
-        f"<code>FREE_LESSON_FILE_ID={file_id}</code>"
-    )
+    global _lesson_1_id, _lesson_2_id, _lesson_3_id
+    
+    caption = message.caption and message.caption.strip()
+    if caption == "2":
+        _lesson_2_id = file_id
+        await message.answer(f"✅ Видео-файл сохранен как Урок 2 (Гигиена)!")
+    elif caption == "3":
+        _lesson_3_id = file_id
+        await message.answer(f"✅ Видео-файл сохранен как Урок 3 (Импланты)!")
+    else:
+        _lesson_1_id = file_id
+        await message.answer(
+            f"✅ Видео-файл сохранен как Урок 1 (Прикус)!\n\n"
+            f"(Чтобы сохранить как другой урок, добавьте цифру 2 или 3 в подпись к видео)\n\n"
+            f"<code>FREE_LESSON_FILE_ID={file_id}</code>"
+        )
 
 
 # ══════════════════════════════════════════════
