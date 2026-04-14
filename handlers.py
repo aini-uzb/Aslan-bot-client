@@ -331,7 +331,7 @@ async def watched_lesson(callback: CallbackQuery, state: FSMContext):
         reply_markup=products_keyboard(),
     )
     await callback.message.answer(
-        "👇 Используйте нижнее меню для навигации",
+        "\u3164",
         reply_markup=main_reply_keyboard(),
         disable_notification=True,
     )
