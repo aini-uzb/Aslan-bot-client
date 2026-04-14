@@ -38,15 +38,12 @@ from database import (
     add_subscription, save_admin, get_all_admin_ids,
     add_city, get_all_cities, find_city, city_display_name,
     upsert_user, get_statistics,
+    set_setting, get_setting,
 )
 
 router = Router()
 channel_router = Router()
 
-_lesson_1_id: str = ""
-_lesson_2_id: str = ""
-_lesson_3_id: str = ""
-_start_photo_id: str = ""
 _admin_ids: set[int] = set(ADMIN_IDS_FIXED)
 _payment_messages: dict[str, list[tuple[int, int]]] = {}
 
@@ -122,30 +119,32 @@ async def deliver_free_lesson(message: Message, state: FSMContext, lesson_num: s
     if not paying:
         await state.set_state(UserFlow.after_lesson)
 
+    lesson_text = await get_setting(f"lesson_{lesson_num}_text")
+    if not lesson_text:
+        lesson_text = (
+            "Посмотрите внимательно — в этом видео я показываю, "
+            "как на практике работает мой подход к лечению. "
+            "Это лишь малая часть того, что ждёт вас "
+            "в закрытых материалах."
+        )
+
     caption_pay = (
-        "🎬 <b>Ваш бесплатный урок от Доктора Аслана</b>\n\n"
-        "Посмотрите внимательно — в этом видео я показываю, "
-        "как на практике работает мой подход к лечению.\n\n"
-        "📸 Когда будете готовы — <b>пришлите скриншот чека</b> "
-        "как фото в этот чат."
+        f"🎬 <b>Ваш бесплатный урок от Доктора Аслана</b>\n\n"
+        f"{lesson_text}\n\n"
+        f"📸 Когда будете готовы — <b>пришлите скриншот чека</b> "
+        f"как фото в этот чат."
     )
     caption_normal = (
-        "🎬 <b>Ваш бесплатный урок от Доктора Аслана</b>\n\n"
-        "Посмотрите внимательно — в этом видео я показываю, "
-        "как на практике работает мой подход к лечению. "
-        "Это лишь малая часть того, что ждёт вас "
-        "в закрытых материалах.\n\n"
-        "☝️ Посмотрите урок и нажмите кнопку ниже 👇"
+        f"🎬 <b>Ваш бесплатный урок от Доктора Аслана</b>\n\n"
+        f"{lesson_text}\n\n"
+        f"☝️ Посмотрите урок и нажмите кнопку ниже 👇"
     )
     caption = caption_pay if paying else caption_normal
     reply_kb = payment_also_services_keyboard() if paying else after_lesson_keyboard()
 
-    if lesson_num == "1":
-        video_id = FREE_LESSON_FILE_ID or _lesson_1_id
-    elif lesson_num == "2":
-        video_id = _lesson_2_id
-    else:
-        video_id = _lesson_3_id
+    video_id = await get_setting(f"lesson_{lesson_num}_id")
+    if lesson_num == "1" and not video_id:
+        video_id = FREE_LESSON_FILE_ID
         
     if video_id:
         try:
@@ -274,7 +273,7 @@ async def cmd_start(message: Message, state: FSMContext):
         "Начните с <b>бесплатных видеоуроков по теме</b> 👇"
     )
 
-    photo_id = START_PHOTO_FILE_ID or _start_photo_id
+    photo_id = START_PHOTO_FILE_ID or await get_setting("start_photo_id")
     if photo_id:
         await message.answer_photo(
             photo_id,
@@ -793,35 +792,47 @@ async def admin_set_photo(message: Message):
     if not await check_admin(message.from_user):
         return
     file_id = message.photo[-1].file_id
-    global _start_photo_id
-    _start_photo_id = file_id
+    await set_setting("start_photo_id", file_id)
     await message.answer(
         f"✅ Фото сохранено для приветствия!\n\n"
         f"<code>START_PHOTO_FILE_ID={file_id}</code>"
     )
 
 
+async def process_video_upload(message: Message, file_id: str, is_document: bool = False):
+    caption = (message.caption or "").strip()
+    
+    lesson_num = "1"
+    lesson_text = ""
+    
+    if caption.startswith("2"):
+        lesson_num = "2"
+        lesson_text = caption[1:].strip()
+    elif caption.startswith("3"):
+        lesson_num = "3"
+        lesson_text = caption[1:].strip()
+    elif caption.startswith("1"):
+        lesson_num = "1"
+        lesson_text = caption[1:].strip()
+    else:
+        lesson_num = "1"
+        lesson_text = caption
+
+    await set_setting(f"lesson_{lesson_num}_id", file_id)
+    if lesson_text:
+        await set_setting(f"lesson_{lesson_num}_text", lesson_text)
+    
+    labels = {"1": "Прикус", "2": "Гигиена", "3": "Импланты"}
+    msg = f"✅ {'Видео-файл' if is_document else 'Видео'} сохранен(о) как Урок {lesson_num} ({labels.get(lesson_num, '?')})!"
+    if lesson_text:
+        msg += f"\nТакже сохранен новый текст подписи!"
+    await message.answer(msg)
+
 @router.message(F.video)
 async def admin_set_video(message: Message):
     if not await check_admin(message.from_user):
         return
-    file_id = message.video.file_id
-    global _lesson_1_id, _lesson_2_id, _lesson_3_id
-    
-    caption = message.caption and message.caption.strip()
-    if caption == "2":
-        _lesson_2_id = file_id
-        await message.answer(f"✅ Видео сохранено как Урок 2 (Гигиена)!")
-    elif caption == "3":
-        _lesson_3_id = file_id
-        await message.answer(f"✅ Видео сохранено как Урок 3 (Импланты)!")
-    else:
-        _lesson_1_id = file_id
-        await message.answer(
-            f"✅ Видео сохранено как Урок 1 (Прикус)!\n\n"
-            f"(Чтобы сохранить как другой урок, добавьте цифру 2 или 3 в подпись к видео)\n\n"
-            f"<code>FREE_LESSON_FILE_ID={file_id}</code>"
-        )
+    await process_video_upload(message, message.video.file_id, is_document=False)
 
 
 @router.message(F.document)
@@ -831,23 +842,7 @@ async def admin_set_document(message: Message):
     mime = message.document.mime_type or ""
     if not mime.startswith("video/"):
         return
-    file_id = message.document.file_id
-    global _lesson_1_id, _lesson_2_id, _lesson_3_id
-    
-    caption = message.caption and message.caption.strip()
-    if caption == "2":
-        _lesson_2_id = file_id
-        await message.answer(f"✅ Видео-файл сохранен как Урок 2 (Гигиена)!")
-    elif caption == "3":
-        _lesson_3_id = file_id
-        await message.answer(f"✅ Видео-файл сохранен как Урок 3 (Импланты)!")
-    else:
-        _lesson_1_id = file_id
-        await message.answer(
-            f"✅ Видео-файл сохранен как Урок 1 (Прикус)!\n\n"
-            f"(Чтобы сохранить как другой урок, добавьте цифру 2 или 3 в подпись к видео)\n\n"
-            f"<code>FREE_LESSON_FILE_ID={file_id}</code>"
-        )
+    await process_video_upload(message, message.document.file_id, is_document=True)
 
 
 # ══════════════════════════════════════════════
