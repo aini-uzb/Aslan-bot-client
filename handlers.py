@@ -330,11 +330,6 @@ async def watched_lesson(callback: CallbackQuery, state: FSMContext):
         PRODUCTS_MENU_TEXT,
         reply_markup=products_keyboard(),
     )
-    await callback.message.answer(
-        "\u3164",
-        reply_markup=main_reply_keyboard(),
-        disable_notification=True,
-    )
 
 
 @router.message(F.text == "/menu")
