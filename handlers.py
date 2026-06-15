@@ -1,6 +1,9 @@
 import re
+import logging
 
 from aiogram import Router, F
+
+logger = logging.getLogger(__name__)
 from aiogram.types import Message, CallbackQuery, ReplyKeyboardRemove
 from aiogram.filters import CommandStart, Command
 from aiogram.fsm.context import FSMContext
@@ -19,20 +22,22 @@ from keyboards import (
     back_to_products_keyboard,
     city_back_keyboard,
     main_reply_keyboard,
+    yookassa_payment_keyboard,
+    email_ask_keyboard,
     BTN_WATCH_LESSON,
     BTN_HELP,
 )
 from config import (
     FREE_LESSON_LINK,
     FREE_LESSON_FILE_ID,
+    LESSON_2_FILE_ID,
+    LESSON_3_FILE_ID,
     START_PHOTO_FILE_ID,
     PRODUCTS,
     ADMIN_USERNAMES,
     ADMIN_IDS_FIXED,
-    CARD_NUMBER,
-    CARD_HOLDER,
-    CARD_BANK,
     HELP_CONTACT_USERNAMES,
+    BOT_USERNAME,
 )
 from database import (
     add_subscription, save_admin, get_all_admin_ids,
@@ -163,9 +168,14 @@ async def deliver_free_lesson(message: Message, state: FSMContext, lesson_num: s
     reply_kb = payment_also_services_keyboard() if paying else after_lesson_keyboard()
 
     video_id = await get_setting(f"lesson_{lesson_num}_id")
-    if lesson_num == "1" and not video_id:
-        video_id = FREE_LESSON_FILE_ID
-        
+    if not video_id:
+        if lesson_num == "1":
+            video_id = FREE_LESSON_FILE_ID
+        elif lesson_num == "2":
+            video_id = LESSON_2_FILE_ID
+        elif lesson_num == "3":
+            video_id = LESSON_3_FILE_ID
+
     if video_id:
         try:
             await message.answer_video(
@@ -477,8 +487,63 @@ async def back_to_start(callback: CallbackQuery, state: FSMContext):
 
 
 # ══════════════════════════════════════════════
-#  Оплата — показать карту и ждать чек
+#  Оплата через ЮКассу
 # ══════════════════════════════════════════════
+async def _create_yookassa_payment(user_id: int, product_key: str, email: str = "", username: str = "") -> str:
+    """Создаёт платёж в ЮКассе и возвращает URL для оплаты."""
+    import uuid
+    import asyncio
+    from yookassa import Payment
+
+    product = PRODUCTS[product_key]
+    payment_data = {
+        "amount": {"value": f"{product['price']:.2f}", "currency": "RUB"},
+        "confirmation": {
+            "type": "redirect",
+            "return_url": f"https://t.me/{BOT_USERNAME}",
+        },
+        "description": f"{product['name']} — {product['days']} дней",
+        "metadata": {
+            "user_id": str(user_id),
+            "product_key": product_key,
+            "username": username,
+            "email": email,
+        },
+        "capture": True,
+    }
+
+    if email:
+        payment_data["receipt"] = {
+            "customer": {"email": email},
+            "tax_system_code": 2,  # УСН доходы
+            "items": [
+                {
+                    "description": product["name"],
+                    "quantity": "1.00",
+                    "amount": {
+                        "value": f"{product['price']:.2f}",
+                        "currency": "RUB",
+                    },
+                    "vat_code": 1,        # Без НДС
+                    "payment_mode": "full_payment",
+                    "payment_subject": "service",
+                }
+            ],
+        }
+
+    payment = await asyncio.to_thread(
+        Payment.create, payment_data, str(uuid.uuid4())
+    )
+    return payment.confirmation.confirmation_url
+
+
+def _ask_email_text(product: dict) -> str:
+    return (
+        f"{product['emoji']} <b>{product['name']}</b> — {product['price']} ₽\n\n"
+        f"Напишите свой email для получения чека об оплате 👇"
+    )
+
+
 @router.callback_query(F.data.startswith("pay:"))
 async def show_payment_details(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
@@ -487,25 +552,13 @@ async def show_payment_details(callback: CallbackQuery, state: FSMContext):
     if not product:
         return
 
+    await upsert_user(callback.from_user.id, callback.from_user.username or "", "payment_details")
     await state.update_data(selected_product=product_key)
-    await state.set_state(UserFlow.waiting_receipt)
+    await state.set_state(UserFlow.waiting_email)
 
     await callback.message.edit_text(
-        f"💳 <b>Оплата</b>\n\n"
-        f"{product['emoji']} <b>{product['name']}</b>\n"
-        f"💰 Сумма к оплате: <b>{product['price']} ₽</b>\n"
-        f"📅 Подписка: <b>{product['days']} дней</b>\n\n"
-        f"Переведите точную сумму на карту:\n\n"
-        f"🏦 Банк: <b>{CARD_BANK}</b>\n"
-        f"💳 Карта: <code>{CARD_NUMBER}</code>\n"
-        f"👤 Получатель: <b>{CARD_HOLDER}</b>\n\n"
-        f"📸 После оплаты <b>отправьте скриншот чека</b> "
-        f"прямо в этот чат.\n\n"
-        f"Мы проверим оплату и мгновенно добавим вас "
-        f"в закрытый канал ⚡\n\n"
-        f"💡 <b>Пока готовите перевод</b> — можете посмотреть "
-        f"другую услугу или бесплатный урок (кнопки под сообщением и внизу экрана).",
-        reply_markup=payment_also_services_keyboard(),
+        _ask_email_text(product),
+        reply_markup=email_ask_keyboard(product_key),
     )
 
 
@@ -521,21 +574,68 @@ async def renew_subscription(callback: CallbackQuery, state: FSMContext):
         return
 
     await state.update_data(selected_product=product_key)
-    await state.set_state(UserFlow.waiting_receipt)
+    await state.set_state(UserFlow.waiting_email)
 
     await callback.message.edit_text(
-        f"🔄 <b>Продление подписки</b>\n\n"
+        _ask_email_text(product),
+        reply_markup=email_ask_keyboard(product_key),
+    )
+
+
+@router.message(UserFlow.waiting_email, F.text)
+async def process_email(message: Message, state: FSMContext):
+    import re as _re
+    if await check_admin(message.from_user) and message.text.startswith("/"):
+        return
+    if message.text.strip() in (BTN_HELP, BTN_WATCH_LESSON):
+        return
+
+    email = message.text.strip().lower()
+    if not _re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", email):
+        await message.answer(
+            "❌ <b>Некорректный email</b>\n\n"
+            "Проверьте адрес и попробуйте ещё раз.\n"
+            "<i>Например: ivan@mail.ru</i>"
+        )
+        return
+
+    data = await state.get_data()
+    product_key = data.get("selected_product", "")
+    product = PRODUCTS.get(product_key)
+    if not product:
+        await message.answer("⚠️ Ошибка. Нажмите /start и попробуйте заново.")
+        return
+
+    try:
+        payment_url = await _create_yookassa_payment(
+            message.from_user.id, product_key,
+            email=email,
+            username=message.from_user.username or "",
+        )
+    except Exception as e:
+        logger.error("YooKassa payment error: %s", e)
+        await message.answer(
+            "⚠️ Не удалось создать платёж. Попробуйте позже или обратитесь к администратору."
+        )
+        return
+
+    await state.set_state(UserFlow.product_selected)
+    await message.answer(
+        f"✅ <b>Email принят!</b>\n\n"
         f"{product['emoji']} <b>{product['name']}</b>\n"
         f"💰 Сумма: <b>{product['price']} ₽</b>\n"
-        f"📅 Ещё {product['days']} дней доступа\n\n"
-        f"Переведите точную сумму на карту:\n\n"
-        f"🏦 Банк: <b>{CARD_BANK}</b>\n"
-        f"💳 Карта: <code>{CARD_NUMBER}</code>\n"
-        f"👤 Получатель: <b>{CARD_HOLDER}</b>\n\n"
-        f"📸 Отправьте <b>скриншот чека</b> сюда 👇\n\n"
-        f"💡 Можете заглянуть в <b>другую услугу</b> — кнопки ниже.",
-        reply_markup=payment_also_services_keyboard(),
+        f"📅 Подписка: <b>{product['days']} дней</b>\n\n"
+        f"Нажмите кнопку ниже — откроется страница оплаты.\n\n"
+        f"✅ Карта, СБП, ЮМани — любой способ.\n"
+        f"⚡ Доступ выдаётся <b>автоматически</b> сразу после оплаты.\n"
+        f"📧 Чек придёт на <b>{email}</b>",
+        reply_markup=yookassa_payment_keyboard(payment_url, product_key),
     )
+
+
+@router.message(UserFlow.waiting_email)
+async def waiting_email_not_text(message: Message):
+    await message.answer("✏️ Пожалуйста, напишите email текстом.")
 
 
 @router.callback_query(F.data == "renew_no")
@@ -957,6 +1057,20 @@ async def admin_addcity(message: Message):
         await message.answer(f"✅ Добавлено городов: {len(added)}\n{', '.join(added)}")
     else:
         await message.answer("⚠️ Не удалось распознать города.")
+
+
+@router.message(Command("lessonids"))
+async def admin_lesson_ids(message: Message):
+    if not await check_admin(message.from_user):
+        return
+    lines = []
+    for n in ("1", "2", "3"):
+        vid = await get_setting(f"lesson_{n}_id")
+        txt = await get_setting(f"lesson_{n}_text")
+        lines.append(f"Урок {n} video: <code>{vid or '—'}</code>")
+        if txt:
+            lines.append(f"Урок {n} text: {txt[:40]}...")
+    await message.answer("\n".join(lines))
 
 
 @router.message(F.text.startswith("/cities"))

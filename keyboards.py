@@ -98,6 +98,13 @@ def renewal_keyboard(product_key: str) -> InlineKeyboardMarkup:
     ])
 
 
+def email_ask_keyboard(product_key: str) -> InlineKeyboardMarkup:
+    group = PRODUCTS[product_key]["group"]
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="← Назад", callback_data=f"group:{group}")],
+    ])
+
+
 def city_back_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="← Назад к продуктам", callback_data="back_to_products")],
@@ -107,4 +114,12 @@ def city_back_keyboard() -> InlineKeyboardMarkup:
 def back_to_products_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="📦 Смотреть другие продукты", callback_data="back_to_products")],
+    ])
+
+
+def yookassa_payment_keyboard(payment_url: str, product_key: str) -> InlineKeyboardMarkup:
+    group = PRODUCTS[product_key]["group"]
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="💳 Перейти к оплате", url=payment_url)],
+        [InlineKeyboardButton(text="← Назад", callback_data=f"group:{group}")],
     ])

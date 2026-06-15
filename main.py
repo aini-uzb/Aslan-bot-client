@@ -5,17 +5,21 @@ Doctor Aslan — Telegram-бот с подписками (30/90 дней),
 
 import asyncio
 import logging
+import os
 
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 from aiogram.fsm.storage.memory import MemoryStorage
 
-from config import BOT_TOKEN, PRODUCTS
+from yookassa import Configuration
+
+from config import BOT_TOKEN, PRODUCTS, YOOKASSA_SHOP_ID, YOOKASSA_SECRET_KEY
 from handlers import router, channel_router, _admin_ids
 from middleware import LoggingMiddleware
 from database import init_db, get_expiring_soon, mark_notified, get_expired, deactivate_subscription, get_all_admin_ids
 from keyboards import renewal_keyboard
+from payment_webhook import start_webhook_server
 
 logging.basicConfig(
     level=logging.INFO,
@@ -92,6 +96,10 @@ async def main():
         logger.error("BOT_TOKEN не задан! Проверьте файл .env")
         return
 
+    Configuration.account_id = YOOKASSA_SHOP_ID
+    Configuration.secret_key = YOOKASSA_SECRET_KEY
+    logger.info("YooKassa configured: shop_id=%s", YOOKASSA_SHOP_ID)
+
     await init_db()
 
     saved_admins = await get_all_admin_ids()
@@ -108,7 +116,9 @@ async def main():
     dp.include_router(router)
     dp.include_router(channel_router)
 
-    logger.info("🚀 Бот Doctor Aslan запущен!")
+    webhook_port = int(os.getenv("PORT", 8081))
+    await start_webhook_server(bot, port=webhook_port)
+    logger.info("Бот Doctor Aslan запущен!")
 
     asyncio.create_task(subscription_checker(bot))
 

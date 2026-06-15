@@ -27,11 +27,17 @@ HELP_CONTACT_USERNAMES = [
 
 FREE_LESSON_LINK = os.getenv("FREE_LESSON_LINK", "")
 FREE_LESSON_FILE_ID = os.getenv("FREE_LESSON_FILE_ID", "")
+LESSON_2_FILE_ID = os.getenv("LESSON_2_FILE_ID", "")
+LESSON_3_FILE_ID = os.getenv("LESSON_3_FILE_ID", "")
 START_PHOTO_FILE_ID = os.getenv("START_PHOTO_FILE_ID", "")
 
 CARD_NUMBER = os.getenv("CARD_NUMBER", "")
 CARD_HOLDER = os.getenv("CARD_HOLDER", "")
 CARD_BANK = os.getenv("CARD_BANK", "")
+
+YOOKASSA_SHOP_ID = os.getenv("YOOKASSA_SHOP_ID", "")
+YOOKASSA_SECRET_KEY = os.getenv("YOOKASSA_SECRET_KEY", "")
+BOT_USERNAME = os.getenv("BOT_USERNAME", "AslanDrBot")
 
 PRODUCTS = {
     "channel_30": {

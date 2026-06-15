@@ -145,6 +145,16 @@ async def upsert_user(user_id: int, username: str, step: str):
             )
         await db.commit()
 
+async def update_user_step(user_id: int, step: str):
+    now = datetime.datetime.now(datetime.timezone.utc).isoformat()
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            "UPDATE users SET step = ?, updated_at = ? WHERE user_id = ?",
+            (step, now, user_id)
+        )
+        await db.commit()
+
+
 async def get_statistics() -> dict:
     async with aiosqlite.connect(DB_PATH) as db:
         cursor = await db.execute("SELECT COUNT(*) FROM users")

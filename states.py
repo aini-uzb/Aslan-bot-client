@@ -7,5 +7,6 @@ class UserFlow(StatesGroup):
     city_choice = State()
     product_selected = State()
     payment_method = State()
+    waiting_email = State()
     waiting_receipt = State()
     payment_sent = State()
