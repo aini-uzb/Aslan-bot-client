@@ -938,9 +938,13 @@ async def process_video_upload(message: Message, file_id: str, is_document: bool
         await set_setting(f"lesson_{lesson_num}_text", lesson_text)
     
     labels = {"1": "Прикус", "2": "Гигиена", "3": "Импланты"}
-    msg = f"✅ {'Видео-файл' if is_document else 'Видео'} сохранен(о) как Урок {lesson_num} ({labels.get(lesson_num, '?')})!"
+    msg = (
+        f"✅ Урок {lesson_num} ({labels.get(lesson_num, '?')}) сохранён!\n\n"
+        f"<b>FILE_ID:</b>\n<code>{file_id}</code>\n\n"
+        f"Скопируй и вставь в Railway как <code>LESSON_{lesson_num}_FILE_ID</code>"
+    )
     if lesson_text:
-        msg += f"\nТакже сохранен новый текст подписи!"
+        msg += f"\n\nТекст подписи тоже обновлён."
     await message.answer(msg)
 
 @router.message(F.video)
